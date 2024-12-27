@@ -1,37 +1,63 @@
-version: "3.8"
+version: '3.7'
 
 services:
-  # ------------------------------------------------
-  # Zookeeper
-  # ------------------------------------------------
   zookeeper:
-    image: confluentinc/cp-zookeeper:latest
+    image: confluentinc/cp-zookeeper:7.4.0
     container_name: zookeeper
+    ports:
+      - "2181:2181"
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
 
-  # ------------------------------------------------
-  # Kafka
-  # ------------------------------------------------
-  kafka:
-    image: confluentinc/cp-kafka:latest
-    container_name: kafka
+  kafka-1:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-1
     depends_on:
       - zookeeper
     ports:
-      - "9092:9092"
+      - "9092:9092"  # Internal listener for inter-broker communication
+      - "29092:29092"  # External listener for host machine access
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-      # Advertise the Kafka container's network address to other containers:
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_DELETE_TOPIC_ENABLE: "true"
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092,HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,HOST://0.0.0.0:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+  kafka-2:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-2
+    depends_on:
+      - zookeeper
+    ports:
+      - "9093:9093"  # Internal listener for inter-broker communication
+      - "29093:29093"  # External listener for host machine access (fixed)
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9093,HOST://localhost:29093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9093,HOST://0.0.0.0:29093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+  kafka-3:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka-3
+    depends_on:
+      - zookeeper
+    ports:
+      - "9094:9094"
+      - "29094:29094"
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_LOG4J_ROOT_LOGLEVEL: DEBUG
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9094,HOST://localhost:29094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9094,HOST://0.0.0.0:29094
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
 
   # ------------------------------------------------
   # Kafka Connect
@@ -40,12 +66,14 @@ services:
     image: confluentinc/cp-kafka-connect:latest
     container_name: kafka-connect
     depends_on:
-      - kafka
+      - kafka-1
+      - kafka-2
+      - kafka-3
     ports:
       - "8083:8083"  # The Kafka Connect REST API
     environment:
       # --- Connection to Kafka ---
-      CONNECT_BOOTSTRAP_SERVERS: "kafka:9092"
+      CONNECT_BOOTSTRAP_SERVERS: "kafka-1:9092,kafka-2:9093,kafka-3:9094"
       CONNECT_REST_ADVERTISED_HOST_NAME: "kafka-connect"
       CONNECT_GROUP_ID: "connect-cluster"
 
@@ -99,3 +127,7 @@ services:
 
 volumes:
   mariadb_data:
+
+networks:
+  default:
+    name: kafka-network

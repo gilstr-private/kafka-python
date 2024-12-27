@@ -9,9 +9,9 @@
     "connection.password": "123123",
 
     "mode": "incrementing",
-    "incrementing.column.name": "id",
+    "incrementing.column.name": "ID",
 
-    "table.whitelist": "transactions",
+    "table.whitelist": "transaction",
 
     "topic.prefix": "sandbox-"
   }
