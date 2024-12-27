@@ -1,0 +1,13 @@
+{
+  "name": "test-mariadb-jdbc-connection",
+  "config": {
+    "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
+    "tasks.max": "1",
+    "connection.url": "jdbc:mariadb://mariadb:3306/sandbox",
+    "connection.user": "root",
+    "connection.password": "123123",
+    "mode": "bulk",
+    "topic.prefix": "test-mariadb-",
+    "query": "SELECT 1"
+  }
+}

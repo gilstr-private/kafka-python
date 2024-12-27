@@ -1,83 +1,101 @@
-version: '3.7'
+version: "3.8"
 
 services:
+  # ------------------------------------------------
+  # Zookeeper
+  # ------------------------------------------------
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.4.0
+    image: confluentinc/cp-zookeeper:latest
     container_name: zookeeper
-    ports:
-      - "2181:2181"
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
 
-  kafka-1:
-    image: confluentinc/cp-kafka:7.4.0
-    container_name: kafka-1
+  # ------------------------------------------------
+  # Kafka
+  # ------------------------------------------------
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka
     depends_on:
       - zookeeper
     ports:
-      - "9092:9092"  # Internal listener for inter-broker communication
-      - "29092:29092"  # External listener for host machine access
+      - "9092:9092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092,HOST://localhost:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,HOST://0.0.0.0:29092
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      # Advertise the Kafka container's network address to other containers:
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
 
-  kafka-2:
-    image: confluentinc/cp-kafka:7.4.0
-    container_name: kafka-2
-    depends_on:
-      - zookeeper
-    ports:
-      - "9093:9093"  # Internal listener for inter-broker communication
-      - "29093:29093"  # External listener for host machine access (fixed)
-    environment:
-      KAFKA_BROKER_ID: 2
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9093,HOST://localhost:29093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9093,HOST://0.0.0.0:29093
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-
-  kafka-3:
-    image: confluentinc/cp-kafka:7.4.0
-    container_name: kafka-3
-    depends_on:
-      - zookeeper
-    ports:
-      - "9094:9094"
-      - "29094:29094"
-    environment:
-      KAFKA_BROKER_ID: 3
-      KAFKA_LOG4J_ROOT_LOGLEVEL: DEBUG
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9094,HOST://localhost:29094
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9094,HOST://0.0.0.0:29094
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-
+  # ------------------------------------------------
+  # Kafka Connect
+  # ------------------------------------------------
   kafka-connect:
-    image: quay.io/debezium/connect:${DEBEZIUM_VERSION:-latest}
+    image: confluentinc/cp-kafka-connect:latest
     container_name: kafka-connect
     depends_on:
-      - kafka-1
+      - kafka
     ports:
-      - "8083:8083" # Kafka Connect REST API port for managing connectors.
+      - "8083:8083"  # The Kafka Connect REST API
     environment:
-      BOOTSTRAP_SERVERS: "kafka-1:9092,kafka-2:9093,kafka-3:9094"
+      # --- Connection to Kafka ---
+      CONNECT_BOOTSTRAP_SERVERS: "kafka:9092"
+      CONNECT_REST_ADVERTISED_HOST_NAME: "kafka-connect"
+      CONNECT_GROUP_ID: "connect-cluster"
 
-      # Internal topics for Kafka Connect (must be compacted and replicated)
-      CONFIG_STORAGE_TOPIC: connect-configs
-      OFFSET_STORAGE_TOPIC: connect-offsets
-      STATUS_STORAGE_TOPIC: connect-status
-      
-      # Replication factors for internal topics (adjust based on your cluster size)
-      CONFIG_STORAGE_REPLICATION_FACTOR: 3
-      OFFSET_STORAGE_REPLICATION_FACTOR: 3
-      STATUS_STORAGE_REPLICATION_FACTOR: 3
-networks:
-  default:
-    name: kafka-network
+      # --- Internal topics (these topics must exist in Kafka) ---
+      CONNECT_CONFIG_STORAGE_TOPIC: "connect_config"
+      CONNECT_OFFSET_STORAGE_TOPIC: "connect_offset"
+      CONNECT_STATUS_STORAGE_TOPIC: "connect_status"
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+
+      # --- Serialization settings ---
+      CONNECT_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_INTERNAL_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_INTERNAL_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+
+      # --- Logging noise reduction ---
+      CONNECT_LOG4J_LOGGERS: "org.apache.kafka.connect.runtime.rest=WARN,org.reflections=WARN"
+
+      # --- Plugin path (for JDBC drivers, connectors, etc.) ---
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/etc/kafka-connect/jars"
+
+      # If you are using Confluent Hub, you can install plugins in /usr/share/confluent-hub-components,
+      # but for manual JAR placement, you can mount them in /etc/kafka-connect/jars
+
+    # Mount local "plugins" directory into Kafka Connect’s plugin path
+    volumes:
+      - ./plugins:/etc/kafka-connect/jars
+
+  # ------------------------------------------------
+  # MariaDB
+  # ------------------------------------------------
+  mariadb:
+    image: mariadb:latest
+    container_name: mariadb
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: "123123"
+      MARIADB_DATABASE: "sandbox"            # Create a database
+      MARIADB_USER: "flask_user"             # Create a non-root user
+      MARIADB_PASSWORD: "password123"     # Password for the above user
+    command: >
+      mariadbd
+        --character-set-server=utf8mb4
+        --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+
+volumes:
+  mariadb_data:
